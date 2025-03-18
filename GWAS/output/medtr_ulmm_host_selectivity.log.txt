@@ -1,0 +1,37 @@
+##
+## GEMMA Version    = 0.98.3 (2020-11-28)
+## Build profile    = 
+## GCC version      = 7.5.0
+## GSL Version      = 1.16
+## OpenBlas         = OpenBLAS 0.3.12  - OpenBLAS 0.3.23 DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=128
+##   arch           = Haswell
+##   threads        = 20
+##   parallel type  = threaded
+##
+## Command Line Input = gemma -bfile mdtr -k ./output/medtr_ksmat.cXX.txt -lmm 4 -o medtr_ulmm_host_selectivity 
+##
+## Date = Mon Mar 25 16:31:16 2024
+##
+## Summary Statistics:
+## number of total individuals = 202
+## number of analyzed individuals = 202
+## number of covariates = 1
+## number of phenotypes = 1
+## number of total SNPs/var = 8476914
+## number of analyzed SNPs/var = 8476913
+## REMLE log-likelihood in the null model = 100.05
+## MLE log-likelihood in the null model = 101.669
+## pve estimate in the null model = 0.323938
+## se(pve) in the null model = 0.214221
+## vg estimate in the null model = 0.015288
+## ve estimate in the null model = 0.0153871
+## beta estimate in the null model =   0.170695
+## se(beta) =   0.00872777
+##
+## Computation Time:
+## total computation time = 77.9706 min 
+## computation time break down: 
+##      time on eigen-decomposition = 0.00250882 min 
+##      time on calculating UtX = 5.57588 min 
+##      time on optimization = 69.0595 min 
+##
