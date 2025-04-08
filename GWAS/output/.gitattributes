@@ -1,2 +1,0 @@
-medtr_ulmm_host_selectivity.csv filter=lfs diff=lfs merge=lfs -text
-medtr_ulmm_host_selectivity.assoc.txt filter=lfs diff=lfs merge=lfs -text
