@@ -37,6 +37,9 @@ traits <- df %>%
          -starts_with("FeretAngle")) %>%  select(-starts_with("Angle")) %>%
   lapply(as.numeric) %>% data.frame()
 
+# Center and scale data!
+traits <- scale(traits)
+
 H <- df %>% select(H)
 
 # Join with H
@@ -251,12 +254,56 @@ dev.off()
 
 # Host Selectivity Heritability -------------------------------------------
 
+### Load Brian Wards Broad Sense Heritability Estimate Function
+### from following package no longer supported by this version of 
+### R
+
+### https://github.com/etnite/bwardr
+
+# Calculate Generalized Heritability from lme4 Model
+# 
+# @param model A lme4 model object
+# @param geno_label A string denoting the label of the random genotypic effect in the
+#   supplied lme4 model object
+# @return A list containing the following elements:
+# * avsed The average standard error of differences between adjusted means estimates
+# * H2 The generalized heritability estimate
+# @details This function calculates generalized heritability using the method of
+#   Cullis et al., 2006 (\url{https://doi.org/10.1198/108571106X154443}).
+#   Specifically, their formula is H2 = 1 - (vblup / (2 * var_g)). Where the
+#   generalized heritability (H2) is a function of the reliability of the BLUPs
+#   (vblup - the average standard error of differences between BLUPs squared),
+#   and the genotypic variance (var_g). This method can be used in unbalanced 
+#   applications where the traditional entry-mean heritability calculation will 
+#   give biased estimates. The method of doing this using lme4 is detailed by 
+#   Ben Bolker at \url{https://stackoverflow.com/questions/38697477/mean-variance-of-a-difference-of-blues-or-blups-in-lme4}.
+#   This method yields values that are slightly different (I have observed up to
+#   0.75%) from ASReml-R's results. Another solution I came across at 
+#   \url{https://shantel-martinez.github.io/resources.html} seems to produce
+#   results that are more divergent from ASReml-R's.
+
+Cullis_H2 <- function(model, geno_label = "GENO") {
+  
+  ## Extract genotypic variance
+  var_g <- lme4::VarCorr(model, comp = "Variance")[[geno_label]][1]
+  
+  ## Extract genotypic conditional variances
+  convars <- lme4::ranef(model, condVar = TRUE)
+  g_convar <- attr(convars[[geno_label]], "postVar")
+  
+  ## Calculate VBLUP and avsed
+  vblup <- 2 * mean(g_convar)
+  avsed <- sqrt(vblup)
+  
+  ## Calculate generalized heritability
+  H2 <- 1 - (vblup / (2 * var_g))
+  
+  ## Create and return output list
+  out_list <- list("avsed" = avsed, "H2" = H2)
+  return(out_list)
+}
+
 # Load packages
-
-###install.packages("remotes")
-###remotes::install_github("etnite/bwardr")
-
-library(bwardr)
 library(tidyverse)
 library(lmerTest)
 library(lme4)
@@ -267,11 +314,11 @@ heritability <- metadata %>% select(pot, geno, block) %>% right_join(host.select
 
 mixed_model <- lmer(host.selectivity ~ (1|geno) + block, data = heritability, REML = T)
 
-broad_sense_H2_estimate <- bwardr::Cullis_H2(model = mixed_model, geno_label = "geno")
+broad_sense_H2_estimate <- Cullis_H2(model = mixed_model, geno_label = "geno")
 broad_sense_H2_estimate[[2]]
 
 # Figure 2 C) Host Selectivity LASSO Genotypic Means ----------------------------------
-set.seed(1)
+
 # Load data with nodules traits
 df <- read_csv("Data/HapMap-SpanFran2-Spring2020/df_summary.csv")
 
@@ -300,8 +347,7 @@ traits$geno <- df$geno
 df.geno.sum <- df %>% group_by(geno) %>%
   summarise_if(is.numeric, mean, na.rm = TRUE)
 
-# Seperate traits means and host selectivity means!
-
+# Separate traits means and host selectivity means!
 traits <- df.geno.sum %>% ungroup() %>%
   select(pred.prop.lobed, ends_with("var"), ends_with("mean"), 
          ends_with("var"), ends_with("mean")) %>%
@@ -309,6 +355,9 @@ traits <- df.geno.sum %>% ungroup() %>%
          -starts_with("FeretX"), -starts_with("FeretY"), -starts_with("Angle"),
          -starts_with("FeretAngle")) %>%  select(-starts_with("Angle")) %>%
   lapply(as.numeric) %>% data.frame() 
+
+# Center and scale traits!
+traits <- scale(traits)
 
 HS <- df.geno.sum[,3]
 
@@ -318,7 +367,7 @@ HS <- as.matrix(HS)
 df <- cbind(HS, traits)
 
 # Determine test and training
-train <- sample(1:203, 101)
+train <- sample(1:203, 50)
 test <- setdiff(seq(1,203,1),train)
 
 train.df <- df.geno.sum[train,]
@@ -342,41 +391,70 @@ lasso.pred <- predict(lasso.mod , s = bestlam,
 mean((lasso.pred - HS[test,1])^2)
 
 out <- glmnet(traits, HS, alpha = 1, lambda = grid)
-out
+
 lasso.coef <- predict(out, type = "coefficients",
-                      s = 0.04) # CV select a lambda too large to yield a coefficient
-                                # Yet, iterative decreases of lambda show how Major_mean
-                                # Prominent variable
+                      s = bestlam) 
 
-lasso.coef
 
-# We can use lasso for model selection!
+modLasso <- lm(host.selectivity ~ Area_mean, data = df.geno.sum)
+summary(modLasso)
 
-# Least squares fit with variables selected by lasso
+modLasso <- lm(host.selectivity ~ elongation_mean, data = df.geno.sum)
+summary(modLasso)
+
 modLasso <- lm(host.selectivity ~ Major_mean, data = df.geno.sum)
 summary(modLasso)
 
-# Plot (make this pretty)
+
+# Yet, iterative decreases in parameters show how Width_mean and Major_mean are
+# Prominent variables
+
+lasso.coef
+
+# We can use lasso for model selection and the largest coefficient!
+modLasso <- lm(host.selectivity ~ Major_mean, data = df.geno.sum)
+summary(modLasso)
+
+# We can use lasso for model selection!
+modLasso <- lm(host.selectivity ~ Width_mean, data = df.geno.sum)
+summary(modLasso)
+
+# Least squares fit with variables selected by lasso
+df.geno.sum <- data.frame(df.geno.sum)
+
+modLasso <- lm(host.selectivity ~ Major_mean, data = df.geno.sum)
+summary(modLasso)
+
 predicted.values <- predict(modLasso, type = "response")
 
 df.geno.sum <- data.frame(df.geno.sum)
 a.geno <- df.geno.sum %>%
+  ggplot(aes(y = host.selectivity, x = Width_mean)) + 
+  geom_point(aes(), color="black", pch=21, size=2, alpha=0.8) +
+  geom_line(aes(y = predicted.values), linetype = 2) +
+  theme(legend.title = element_text(face = "bold", size=10),
+        axis.title = element_text(face = "bold", size=10)) +
+  theme_classic() + ylab("host.selectivity") + xlab("Width_mean")
+a.geno
+
+b.geno <- df.geno.sum %>%
   ggplot(aes(y = host.selectivity, x = Major_mean)) + 
   geom_point(aes(), color="black", pch=21, size=2, alpha=0.8) +
   geom_line(aes(y = predicted.values), linetype = 2) +
   theme(legend.title = element_text(face = "bold", size=10),
         axis.title = element_text(face = "bold", size=10)) +
   theme_classic() + ylab("host.selectivity") + xlab("Major_mean")
-a.geno
+b.geno
 
-### Compare linear and quadratic regression
+c.geno <- df.geno.sum %>%
+  ggplot(aes(y = host.selectivity, x = Area_mean)) + 
+  geom_point(aes(), color="black", pch=21, size=2, alpha=0.8) +
+  theme(legend.title = element_text(face = "bold", size=10),
+        axis.title = element_text(face = "bold", size=10)) +
+  theme_classic() + ylab("host.selectivity") + xlab("Area_mean")
+c.geno
 
-df.geno.sum$geno.label <- ifelse(is.na(df.geno.sum$geno), "R108",
-                                   ifelse(df.geno.sum$geno == "HM101", "A17", "other"))
-
-#fit linear model
-lm <- lm(host.selectivity ~ Major_mean, data = df.geno.sum)
-summary(lm)
+### Compare linear and quadratic regression of largest coefficient...
 
 #create a new variable for Major_mean2
 df.geno.sum$Major_mean2 <- df.geno.sum$Major_mean^2
@@ -385,17 +463,20 @@ df.geno.sum$Major_mean2 <- df.geno.sum$Major_mean^2
 qm <- lm(host.selectivity ~ Major_mean + Major_mean2, data = df.geno.sum)
 summary(qm)
 
+# Major_mean quadratic model fits best!
+
 # Plot!
 
 # add color labels to A17, R108 and other
-
+df.geno.sum$geno.label <- ifelse(is.na(df.geno.sum$geno), "R108",
+                                 ifelse(df.geno.sum$geno == "HM101", "A17", "other"))
 df.geno.sum$geno.label <- factor(df.geno.sum$geno.label, levels=c("A17","R108","other"))
 geno.color.scale <- c('#63b06f','#6ea9b7','black')
 
 Fig2C <- ggplot(df.geno.sum, 
-                            aes(x=Major_mean,
-                                y=host.selectivity,
-                                color=geno.label)) + geom_point() +
+                aes(x=Major_mean,
+                    y=host.selectivity,
+                    color=geno.label)) + geom_point() +
   scale_color_manual(name = "Genotype", values = geno.color.scale) +
   stat_smooth(method = "lm", 
               formula = y ~ poly(x, 2), 
