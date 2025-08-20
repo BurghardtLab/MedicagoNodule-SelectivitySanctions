@@ -168,6 +168,17 @@ selectivity_geno_df <- metadata %>% select(pot,geno,block) %>%
 geno_selectivity <- lm(host.selectivity ~ geno + block, data = selectivity_geno_df)
 summary(geno_selectivity)
 
+# Get ANOVA table
+library(car)
+anova_table <- car::Anova(geno_selectivity, type = "II")
+
+# Calculate percent variance explained by each term
+total_ss <- sum(anova_table$`Sum Sq`)
+r <- (anova_table$`Sum Sq` / total_ss) * 100
+
+# View results
+cbind(anova_table, r_sq = r)
+
 # Figure 2 A) Host Selectivity Histogram ----------------------------------------------
 
 Fig2A <- host.selectivity %>% ggplot(aes(x = host.selectivity)) +
@@ -217,14 +228,20 @@ RDA_geno_sum
 RDA_geno_sum$cont$importance[2, "RDA1"]
 RDA_geno_sum$cont$importance[2, "RDA2"]
 
+centroids <- scores(RDA_geno, display = "sites", choices = c(1, 2))
+
+
 # Select HM340 (R108) and HM101 (A17) to plot
 HM <- c("HM340", "HM101")
+geno_centroids <- scores(RDA_geno, display = "cn")  # factor centroids
 
-genos <- NULL
-genos$geno <- substr(rownames(RDA_geno_sum$centroids),5,9)
-genos$RDA1 <- RDA_geno_sum$centroids[,1]
-genos$RDA2 <- RDA_geno_sum$centroids[,2]
-genos <- as.data.frame(genos)
+genos <- data.frame(
+  geno = substr(rownames(geno_centroids),5,9),
+  RDA1 = geno_centroids[,1],
+  RDA2 = geno_centroids[,2]
+)
+
+genos <- data.frame(genos)
 genos <- genos %>% filter(geno %in% HM)
 genos$names <- c("A17", "R108")
 
@@ -502,6 +519,69 @@ Fig2C <- ggplot(df.geno.sum,
 
 pdf("./Figures/Figure2C.pdf", width = 6, height = 6)
 Fig2C
+dev.off()
+
+# Host Selectivity ~ Nodule Traits ----------------------------------------
+
+# Select traits of interest
+df_sub <- df.geno.sum %>% 
+  select(geno, host.selectivity, pred.prop.lobed,
+         nodule_calc_count, ends_with("var"), ends_with("mean"), 
+         ends_with("var"), ends_with("mean")) %>%
+  select(-starts_with("BX"), -starts_with("BY"), -starts_with("StdDev"),
+         -starts_with("FeretX"), -starts_with("FeretY"), -starts_with("Angle"),
+         -starts_with("FeretAngle")) %>%  select(-starts_with("Angle")) 
+
+# Generate Correlation Coefficients and significance
+get_cor_pval <- function(x, y) {
+  test <- cor.test(x, y, method = "pearson")
+  return(c(correlation = test$estimate, p_value = test$p.value))
+}
+HS <- df_sub$host.selectivity
+traits <- df_sub[, 3:32]
+corr <- t(sapply(traits, function(x) get_cor_pval(HS, x)))
+corr <- as.data.frame(corr)
+corr$variable <- rownames(corr)
+
+# Generate Plots
+traits_plots <- list()
+x_variables <- colnames(df_sub[,3:32])
+y_variable <- "host.selectivity"
+
+for(i in seq_along(x_variables)) {
+  if(corr$p_value[i] <= 0.05) {
+    traits_plots[[i]] <- ggplot(df_sub, aes_string(x = x_variables[i], y = y_variable)) +
+      geom_point(color="black", pch=21, size=2, alpha=0.8) +
+      geom_smooth(method = "lm", color = "red") +
+      labs(title = paste0("r = ", round(corr$correlation.cor[i],digits = 2)),
+           x = x_variables[i],
+           y = "Host Selectivity") +
+      theme(axis.title = element_text(face = "bold", size=10)) +
+      theme_classic()
+  } else {
+    traits_plots[[i]] <- ggplot(df_sub, aes_string(x = x_variables[i], y = y_variable)) +
+      geom_point(color="black", pch=21, size=2, alpha=0.8) +
+      labs(title = paste0("r = ", round(corr$correlation.cor[i],digits = 2)),
+           x = x_variables[i],
+           y = "Host Selectivity") +
+      theme(axis.title = element_text(face = "bold", size=10)) +
+      theme_classic()
+  }
+}
+
+# Reorder based off of rho
+corr$index <- seq(nrow(corr))
+new_order <- arrange(corr, correlation.cor) %>% pull(index)
+traits_plots <- traits_plots[new_order]
+
+library(cowplot)
+# Create a 5x6 grid with your 29 plots
+combined_plot <- plot_grid(plotlist = traits_plots, 
+                           ncol = 6, 
+                           nrow = 5)
+
+pdf("./Figures/FigureREV.pdf", height = 11, width = 11)
+combined_plot
 dev.off()
 
 # Figure 2 Plot --------------------------------------------
